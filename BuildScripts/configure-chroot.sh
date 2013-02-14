@@ -1,9 +1,10 @@
 #!/bin/bash
 #-------------------------------------------------------------------------
-#	File:	update-chroot.sh
+#	File:	BuildScripts/configure-chroot.sh
 #	Author:	Donald Raikes <don.raikes@gmail.com>
 #	Date:	02/11/2013
 #-------------------------------------------------------------------------
+echo "running configure-chroot.sh ..."
 sudo mount none -t proc /proc
 sudo mount none -t sysfs /sys
 sudo mount none -t devpts /dev/pts

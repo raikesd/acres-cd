@@ -1,75 +1,80 @@
-# ---------------------------------------------------------------------
-#	File:	acres-cd/Makefile
+########################################################
+#	File:	Makefile
 #	Author:	Donald Raikes <don.raikes@gmail.com>
-#	Date:	02/08/2013
-# ---------------------------------------------------------------------
+#	Date:	02/13/2013
+########################################################
 
-# script properties
+# set makefile properties
 DT=`date +%Y%m%d`
 CWD=`pwd`
-SCRIPTDIR=$(CWD)/scripts
-CONFDIR=$(CWD)/conf
-
+BUILDSCRIPTS=$(CWD)/BuildScripts
+USERSCRIPTS=$(CWD)/UserScripts
 WORKDIR=~/acres/$(DT)
 CHROOTDIR=$(WORKDIR)/chroot
 IMAGEDIR=$(WORKDIR)/image
-BOOTDIR=$(IMAGEDIR)/boot
 CASPERDIR=$(IMAGEDIR)/casper
+BOOTDIR=$(IMAGEDIR)/boot
 ISOLINUXDIR=$(IMAGEDIR)/isolinux
 INSTALLDIR=$(IMAGEDIR)/install
-## various package sets:
 
-syntax:
-	echo "Syntax:"
-	echo "    make build-cd		-		to build the cd"
-	echo .
-	echo "The cd is based on ubuntu 13.04 Raring Ringtail."
+FROMSERIES=precise
+TOSERIES=raring
 
-update-host:
-	echo "Updating host system with necessary packages ... "
-	$(PATUPDATE)
-	sudo apt-get update
-	sudo apt-get install -y -qq debootstrap genisoimage squashfs-tools syslinux
+Cleanup:
+	# remove the working directory structure if it exists.
+	echo "Running Cleanup:..."
+	test -d $(WORKDIR); sudo rm -fr $(WORKDIR)
 
-mkdirs: | cleanup
-	# Now prepare the directory structure
-	echo "Preparing the directory structure in $(WORKDIR) ..."
-	sudo mkdir -p $(CHROOTDIR) 
-	sudo mkdir -p $(BOOTDIR) 
-	sudo mkdir -p $(CASPERDIR) 
-	sudo mkdir -p $(ISOLINUXDIR)
-	sudo mkdir -p $(INSTALLDIR)
+Make-Dirs: | Cleanup
+	# Create a new directory structure.
+	echo "Running Make-Dirs: ..."
+	sudo mkdir -p $(CHROOTDIR) $(BOOTDIR) $(CASPERDIR) $(ISOLINUXDIR) $(INSTALLDIR)
 
-cleanup:
-	# remove old directory structure if it exists already
-	echo "Cleaning up old directory structure $(WORKDIR) ..."
-	sudo rm -fr $(WORKDIR)
+Update-Host:
+	# update host system with necessary packages.
+	echo "Running Update-Host: ... "
+	sudo apt-get update -qq > /dev/null
+	sudo apt-get install -y -qq debootstrap syslinux squashfs-tools genisoimage
 
-bootstrap: | update-host mkdirs
-	echo "Bootstrap the base image ..."
-	sudo debootstrap --arch=i386 raring $(CHROOTDIR)
+Bootstrap: | Make-Dirs Update-Host
+	# Run debootstrap to bootstrap the new system image.
+	echo "Running Bootstrap: ..."
+	sudo debootstrap --arch=i386 $(TOSERIES) $(CHROOTDIR)
 
-mount: 
-	# mount necessary block devices
-	echo "Running mount: ..."
-	sudo mount --bind /dev $(CHROOTDIR)/dev
+Setup-Networking:
+		# copy hosts and resolv.conf files from host to chroot 
+		echo "Running Setup-Networking: ... "
+		sudo cp /etc/hosts $(CHROOTDIR)/etc/hosts
+		sudo cp /etc/resolv.conf $(CHROOTDIR)/etc/resolv.conf
 
-copyfiles:
-	# copy necessary files into the chroot directory.
-	echo "Copying files ..."
-	sudo cp /etc/hosts $(CHROOTDIR)/etc
-	sudo cp /etc/resolv.conf $(CHROOTDIR)/etc
-	sudo cp /etc/apt/sources.list $(CHROOTDIR)/etc/apt
-	sudo cp $(SCRIPTDIR)/* $(CHROOTDIR)/root
+Configure-APT:
+	# Configure the /etc/apt/sources.list file for the chrooted system.
+	echo "Running Configuring-apt: ... "
+	sudo chmod 777 $(CHROOTDIR)/etc/apt/sources.list
+	sudo sed s/$(FROMSERIES)/$(TOSERIES)/ < /etc/apt/sources.list > $(CHROOTDIR)/etc/apt/sources.list
 
-prep: |  bootstrap mount copyfiles
-	# Prepare the chroot environment:
-	echo "chroot environment has been prepared and now you will be placed inside of a chroot."
-	echo "Run /root/customize-cd.sh to install extra packages."
-	echo "Remember to run /root/cleanup-chroot.sh before exiting the chroot."
-	sudo chroot $(CHROOTDIR)
+Copy-Build-Scripts:
+	# copy the scripts necessary to customize the chroot environment into the chroot folder
+	echo "Running Copy-Build-Scripts: ... "
+	test -d $(CHROOTDIR)/usr/local/bin; sudo cp $(BUILDSCRIPTS)/* $(CHROOTDIR)/usr/local/bin
+	sudo chmod 777 $(CHROOTDIR)/usr/local/bin/*
 
-start-chroot:
-	# chroot into the cd image chroot
-	echo "Chrooting $(CHROOTDIR) ... "
-	sudo chroot $(CHROOTDIR)
+Update-Chroot: | Copy-Build-Scripts
+	# update the chroot environment with necessary packages.
+	echo "Running Update-Chroot: ... "
+	sudo chroot $(CHROOTDIR) /usr/local/bin/update-chroot.sh
+
+Add-Accessibility: | Copy-Build-Scripts
+	# add accessibility features
+	echo "Running Add-Accessibility: ... "
+	sudo chroot $(CHROOTDIR) /usr/local/bin/add-accessibility.sh
+
+System-Rescue: | Copy-Build-Scripts
+	# add packages for basic system rescue
+	echo "running System-Rescue: ..."
+	sudo chroot $(CHROOTDIR) /usr/local/bin/system-rescue.sh
+
+
+Customize-Chroot: | Bootstrap Setup-Networking Configure-APT Copy-Build-Scripts
+	# Now chroot into the newly bootstrapped system and customize it using the build scripts.
+	echo "Running Customize-Chroot: ... "
